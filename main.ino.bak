@@ -1,0 +1,169 @@
+
+#include "cellular_hal.h"
+
+#include "OneWire.h"
+#include "DallasTemperature.h"
+#include "devices.h"
+#include "TempMgr.h"
+
+STARTUP(cellular_credentials_set("wholesale", "", "", NULL));
+
+OneWire ds(D0);
+DallasTemperature temps(&ds);
+TempMgr tempMgr(numAddresses);
+
+TCPClient client;
+byte server[] = { 52, 7, 7, 190 };
+
+void setup() {
+   Serial.begin(9600);
+   temps.begin();
+}
+
+int sampleRounds = 0;
+
+void loop(void) {
+
+  unsigned long start = millis();
+
+  for (int i = 0; i < numAddresses; i++) {
+    if (temps.requestTemperaturesByAddress(addresses[i])) {
+      float temp = temps.getTempF(addresses[i]);
+      if (validTemp(temp)) {
+        tempMgr.addTempSample(i, temp);
+      }
+    }
+  }
+  unsigned long end = millis();
+
+  sampleRounds++;
+  if (sampleRounds == 20) {
+    Serial.print("Avg: ");
+    Serial.println(tempMgr.getAverageTemp(3));
+    sampleRounds = 0;
+  }
+
+  unsigned long delayMS = 3000;
+  if (end > start) {
+    delayMS = max(1000, delayMS - (end - start));
+  }
+  delay(delayMS);
+
+  /*if (temps.getDeviceCount() != numDevices) {
+    Serial.println("Restarting temp bus");
+    temps.begin();
+    delay(2000);
+  }
+
+  if (temps.getDeviceCount()) {
+    temps.requestTemperatures();
+    float temp = temps.getTempF(kitchen);
+    Serial.print("Temp: ");
+    if (validTemp(temp)) {
+      Serial.println(temp);
+      sendData(temp);
+    } else {
+      Serial.println("Invalid temp");
+    }
+  } else {
+    Serial.println("No sensors found");
+  }*/
+
+  /*loudness = analogRead(A0);
+  loudMeasures++;
+  loudMeasuresTotal += loudness;
+
+  if (loudMeasures >= 60) {
+    float loudAvg = (float)loudMeasuresTotal / (float)loudMeasures;
+    float ventFahrenheit = DEVICE_DISCONNECTED_F;
+    float kitchenFahrenheit = DEVICE_DISCONNECTED_F;
+
+    temps.begin();
+    if (temps.getDeviceCount()) {
+      temps.requestTemperatures();
+      ventFahrenheit = temps.getTempF(vent);
+      delay(1000);
+      kitchenFahrenheit = temps.getTempF(kitchen);
+    }
+
+    sendData(loudAvg, ventFahrenheit, kitchenFahrenheit);
+    loudMeasures = 0;
+    loudMeasuresTotal = 0;
+  }*/
+
+  /*if ((Time.now() - lastTempTime) > 60) {
+
+    if (temps.getDeviceCount()) {
+      temps.requestTemperatures();
+
+      float fahrenheit = temps.getTempF(vent);
+      Serial.print("Temp: ");
+      Serial.println(fahrenheit);
+      if (DEVICE_DISCONNECTED_F != fahrenheit && fahrenheit > 0 && fahrenheit < 130) {
+        if (Particle.publish("Temp", String(fahrenheit), PRIVATE)) {
+          delay(2000);
+          lastTempTime = Time.now();
+        }
+      }
+
+      fahrenheit = temps.getTempF(kitchen);
+      Serial.print("Kitchen: ");
+      Serial.println(fahrenheit);
+      if (DEVICE_DISCONNECTED_F != fahrenheit && fahrenheit > 0 && fahrenheit < 130) {
+        if (Particle.publish("Kitchen", String(fahrenheit), PRIVATE)) {
+          delay(2000);
+          lastTempTime = Time.now();
+        }
+      }
+    } else {
+      delay(250);
+    }
+  }*/
+
+  /*delay(60000);*/
+}
+
+void sendData(float field1) { //}, float field2, float field3) {
+  int tries = 0;
+
+  String data = "field1=" + String(field1);
+
+  /*String data = "field2=" + String(field2);
+
+  if (validTemp(field1)) {
+    data.concat("&field1=" + String(field1));
+  }
+
+  if (validTemp(field3)) {
+    data.concat("&field3=" + String(field3));
+  }*/
+
+  while (tries < 3) {
+    tries++;
+
+    if (client.connect(server, 80)) {
+      Serial.println("connected");
+      client.println("POST /update HTTP/1.0");
+      client.println("Host: api.thingspeak.com");
+      client.println("THINGSPEAKAPIKEY: 246JIE9VHBESE217");
+      client.print("Content-Length: ");
+      client.println(data.length());
+      client.println();
+      client.println(data);
+      client.println();
+      client.flush();
+      Serial.println("sending data: " + data);
+      while (client.read() != -1 && client.connected()) {}
+      client.stop();
+      Serial.println("data sent");
+      break;
+    } else {
+      Serial.println("connection failed");
+      delay(2000);
+    }
+  }
+}
+
+bool validTemp(float temp) {
+  return (DEVICE_DISCONNECTED_F != temp && temp > 0 && temp < 130);
+}
